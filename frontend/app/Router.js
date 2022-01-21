@@ -24,6 +24,7 @@ import * as routes from './routes';
 import { OB_DEFAULT_TAB } from 'App/routes';
 import Signup from './components/Signup/Signup';
 import { fetchTenants } from 'Duck/user';
+import { setSessionPath } from 'Duck/sessions';
 
 const BugFinder = withSiteIdUpdater(BugFinderPure);
 const Dashboard = withSiteIdUpdater(DashboardPure);
@@ -69,30 +70,42 @@ const ONBOARDING_REDIRECT_PATH = routes.onboarding(OB_DEFAULT_TAB);
     organisation: state.getIn([ 'user', 'client', 'name' ]),
     tenantId: state.getIn([ 'user', 'client', 'tenantId' ]),
     tenants: state.getIn(['user', 'tenants']),
-    existingTenant: state.getIn(['user', 'existingTenant']),
+    existingTenant: state.getIn(['user', 'authDetails', 'tenants']),
     onboarding: state.getIn([ 'user', 'onboarding' ])
   };
 }, {
-  fetchUserInfo, fetchTenants
+  fetchUserInfo, fetchTenants, setSessionPath
 })
 class Router extends React.Component {
+  state = {
+    destinationPath: null
+  }
   constructor(props) {
     super(props);
     if (props.isLoggedIn) {
       Promise.all([props.fetchUserInfo()])
-      .then(() => this.onLoginLogout());
+      // .then(() => this.onLoginLogout());
     }
     props.fetchTenants();
   }
 
-  componentDidUpdate(prevProps) {
-    if (prevProps.email !== this.props.email) {
-      this.onLoginLogout();
+  componentDidMount() {
+    const { isLoggedIn, location } = this.props;
+    if (!isLoggedIn) {
+      this.setState({ destinationPath: location.pathname });
     }
   }
 
-  onLoginLogout() {
-    const { email, account, organisation } = this.props;
+  componentDidUpdate(prevProps, prevState) {
+    this.props.setSessionPath(prevProps.location.pathname)
+    if (prevProps.email !== this.props.email && !this.props.email) {
+      this.props.fetchTenants();
+    }
+
+    if (!prevProps.isLoggedIn && this.props.isLoggedIn && this.state.destinationPath !== routes.login() && this.state.destinationPath !== '/') {
+      this.props.history.push(this.state.destinationPath);
+      this.setState({ destinationPath: null });
+    }
   }
 
   render() {    

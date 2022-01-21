@@ -1,9 +1,9 @@
 import json
 
-from chalicelib.utils import pg_client, helper
-from chalicelib.utils import ch_client
-from chalicelib.core import sourcemaps, sessions
 from chalicelib.core import dashboard
+from chalicelib.core import sourcemaps, sessions
+from chalicelib.utils import ch_client
+from chalicelib.utils import pg_client, helper
 from chalicelib.utils.TimeUTC import TimeUTC
 
 
@@ -40,7 +40,10 @@ def get_batch(error_ids):
             FROM error_family;""",
             {"error_ids": tuple(error_ids)})
         cur.execute(query=query)
-        return helper.list_to_camel_case(cur.fetchall())
+        errors = cur.fetchall()
+        for e in errors:
+            e["stacktrace_parsed_at"] = TimeUTC.datetime_to_timestamp(e["stacktrace_parsed_at"])
+        return helper.list_to_camel_case(errors)
 
 
 def __flatten_sort_key_count_version(data, merge_nested=False):
@@ -321,7 +324,7 @@ def get_details_chart(project_id, error_id, user_id, **data):
             "error_id": error_id}
 
         main_ch_query = f"""\
-        SELECT error_id,
+        SELECT browser_details.error_id AS error_id,
                browsers_partition,
                os_partition,
                device_partition,
@@ -516,7 +519,7 @@ def search(data, project_id, user_id, flows=False, status="ALL", favorite_only=F
                                 FROM errors
                                 WHERE {" AND ".join(ch_sub_query)}
                                 GROUP BY error_id, timestamp
-                                ORDER BY timestamp)
+                                ORDER BY timestamp) AS sub_table
                                 GROUP BY error_id) AS chart_details ON details.error_id=chart_details.error_id;"""
 
             # print("--------------------")

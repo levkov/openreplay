@@ -1,5 +1,5 @@
-from chalicelib.utils import pg_client, helper
-from chalicelib.utils.helper import environ
+from chalicelib.utils import pg_client, helper, email_helper
+from chalicelib.utils.TimeUTC import TimeUTC
 from chalicelib.utils.helper import get_issue_title
 
 LOWEST_BAR_VALUE = 3
@@ -29,8 +29,12 @@ def edit_config(user_id, weekly_report):
 
 
 def cron():
-    with pg_client.PostgresClient() as cur:
-        cur.execute("""\
+    with pg_client.PostgresClient(long_query=True) as cur:
+        params = {"3_days_ago": TimeUTC.midnight(delta_days=-3),
+                  "1_week_ago": TimeUTC.midnight(delta_days=-7),
+                  "2_week_ago": TimeUTC.midnight(delta_days=-14),
+                  "5_week_ago": TimeUTC.midnight(delta_days=-35)}
+        cur.execute(cur.mogrify("""\
             SELECT project_id,
                name                                                                     AS project_name,
                users.emails                                                             AS emails,
@@ -44,7 +48,7 @@ def cron():
                              SELECT sessions.project_id
                              FROM public.sessions
                              WHERE sessions.project_id = projects.project_id
-                               AND start_ts >= (EXTRACT(EPOCH FROM now() - INTERVAL '3 days') * 1000)::BIGINT
+                               AND start_ts >= %(3_days_ago)s
                              LIMIT 1) AS recently_active USING (project_id)
                      INNER JOIN LATERAL (
                             SELECT COALESCE(ARRAY_AGG(email), '{}') AS emails
@@ -54,14 +58,14 @@ def cron():
                               AND users.weekly_report
                      ) AS users ON (TRUE)
                      LEFT JOIN LATERAL (
-                            SELECT COUNT(issues.*) AS count
+                            SELECT COUNT(1) AS count
                             FROM events_common.issues
                                      INNER JOIN public.sessions USING (session_id)
                             WHERE sessions.project_id = projects.project_id
                               AND issues.timestamp >= (EXTRACT(EPOCH FROM DATE_TRUNC('day', now()) - INTERVAL '1 week') * 1000)::BIGINT
                      ) AS week_0_issues ON (TRUE)
                      LEFT JOIN LATERAL (
-                            SELECT COUNT(issues.*) AS count
+                            SELECT COUNT(1) AS count
                             FROM events_common.issues
                                      INNER JOIN public.sessions USING (session_id)
                             WHERE sessions.project_id = projects.project_id
@@ -69,16 +73,18 @@ def cron():
                               AND issues.timestamp >= (EXTRACT(EPOCH FROM DATE_TRUNC('day', now()) - INTERVAL '2 week') * 1000)::BIGINT
                      ) AS week_1_issues ON (TRUE)
                      LEFT JOIN LATERAL (
-                            SELECT COUNT(issues.*) AS count
+                            SELECT COUNT(1) AS count
                             FROM events_common.issues
                                      INNER JOIN public.sessions USING (session_id)
                             WHERE sessions.project_id = projects.project_id
                               AND issues.timestamp <= (EXTRACT(EPOCH FROM DATE_TRUNC('day', now()) - INTERVAL '1 week') * 1000)::BIGINT
                               AND issues.timestamp >= (EXTRACT(EPOCH FROM DATE_TRUNC('day', now()) - INTERVAL '5 week') * 1000)::BIGINT
                      ) AS month_1_issues ON (TRUE)
-            WHERE projects.deleted_at ISNULL;""")
+            WHERE projects.deleted_at ISNULL;"""), params)
         projects_data = cur.fetchall()
+        emails_to_send = []
         for p in projects_data:
+            params["project_id"] = p["project_id"]
             print(f"checking {p['project_name']} : {p['project_id']}")
             if len(p["emails"]) == 0 \
                     or p["this_week_issues_count"] + p["past_week_issues_count"] + p["past_month_issues_count"] == 0:
@@ -104,7 +110,7 @@ def cron():
                              DATE_TRUNC('day', now()) - INTERVAL '1 day',
                              '1 day'::INTERVAL
                          ) AS timestamp_i
-                ORDER BY timestamp_i;""", {"project_id": p["project_id"]}))
+                ORDER BY timestamp_i;""", params))
             days_partition = cur.fetchall()
             max_days_partition = max(x['issues_count'] for x in days_partition)
             for d in days_partition:
@@ -120,7 +126,7 @@ def cron():
               AND timestamp >= (EXTRACT(EPOCH FROM DATE_TRUNC('day', now()) - INTERVAL '7 days') * 1000)::BIGINT
             GROUP BY type
             ORDER BY count DESC, type
-            LIMIT 4;""", {"project_id": p["project_id"]}))
+            LIMIT 4;""", params))
             issues_by_type = cur.fetchall()
             max_issues_by_type = sum(i["count"] for i in issues_by_type)
             for i in issues_by_type:
@@ -149,7 +155,7 @@ def cron():
                              '1 day'::INTERVAL
                          ) AS timestamp_i
                 GROUP BY timestamp_i
-                ORDER BY timestamp_i;""", {"project_id": p["project_id"]}))
+                ORDER BY timestamp_i;""", params))
             issues_breakdown_by_day = cur.fetchall()
             for i in issues_breakdown_by_day:
                 i["sum"] = sum(x["count"] for x in i["partition"])
@@ -195,7 +201,7 @@ def cron():
                 WHERE mi.project_id = %(project_id)s AND sessions.project_id = %(project_id)s AND sessions.duration IS NOT NULL
                     AND sessions.start_ts >= (EXTRACT(EPOCH FROM DATE_TRUNC('day', now()) - INTERVAL '1 week') * 1000)::BIGINT
                 GROUP BY type
-                ORDER BY issue_count DESC;""", {"project_id": p["project_id"]}))
+                ORDER BY issue_count DESC;""", params))
             issues_breakdown_list = cur.fetchall()
             if len(issues_breakdown_list) > 4:
                 others = {"type": "Others",
@@ -221,13 +227,14 @@ def cron():
                     if j["type"] in keep_types:
                         keep.append(j)
                 i["partition"] = keep
-            helper.async_post(environ['email_funnel'] % "weekly_report2",
-                              {"email": p.pop("emails"),
-                               "data": {
-                                   **p,
-                                   "days_partition": days_partition,
-                                   "issues_by_type": issues_by_type,
-                                   "issues_breakdown_by_day": issues_breakdown_by_day,
-                                   "issues_breakdown_list": issues_breakdown_list
-                               }
-                               })
+            emails_to_send.append({"email": p.pop("emails"),
+                                   "data": {
+                                       **p,
+                                       "days_partition": days_partition,
+                                       "issues_by_type": issues_by_type,
+                                       "issues_breakdown_by_day": issues_breakdown_by_day,
+                                       "issues_breakdown_list": issues_breakdown_list
+                                   }})
+        print(f">>> Sending weekly report to {len(emails_to_send)} email-group")
+        for e in emails_to_send:
+            email_helper.weekly_report2(recipients=e["email"], data=e["data"])

@@ -1,24 +1,22 @@
 import type StatedScreen from '../StatedScreen';
 import type { Message, SetNodeScroll, CreateElementNode } from '../messages';
-import type { TimedMessage } from '../Timed';
 
 import logger from 'App/logger';
 import StylesManager, { rewriteNodeStyleSheet } from './StylesManager';
 import ListWalker from './ListWalker';
-import type { Timed }from '../Timed';
 
 const IGNORED_ATTRS = [ "autocomplete", "name" ];
 
 const ATTR_NAME_REGEXP = /([^\t\n\f \/>"'=]+)/; // regexp costs ~
 
-export default class DOMManager extends ListWalker<TimedMessage> {
+export default class DOMManager extends ListWalker<Message> {
   private isMobile: boolean;
   private screen: StatedScreen;
   private nl: Array<Node> = [];
   private isLink: Array<boolean> = []; // Optimisations
   private bodyId: number = -1;
   private postponedBodyMessage: CreateElementNode | null = null;
-  private nodeScrollManagers: Array<ListWalker<Timed & SetNodeScroll>> = [];
+  private nodeScrollManagers: Array<ListWalker<SetNodeScroll>> = [];
 
   private stylesManager: StylesManager;
 
@@ -36,7 +34,7 @@ export default class DOMManager extends ListWalker<TimedMessage> {
     return this.startTime;
   }
 
-  add(m: TimedMessage): void {
+  add(m: Message): void {
     switch (m.tp) {
     case "set_node_scroll":
       if (!this.nodeScrollManagers[ m.id ]) {
@@ -104,8 +102,9 @@ export default class DOMManager extends ListWalker<TimedMessage> {
     if ((el instanceof HTMLStyleElement) &&  // TODO: correct ordering OR filter in tracker
         el.sheet && 
         el.sheet.cssRules &&
-        el.sheet.cssRules.length > 0) {
-      logger.log("Trying to insert child to style tag with virtual rules: ", this.nl[ parentID ], this.nl[ id ]);
+        el.sheet.cssRules.length > 0 &&
+        el.innerText.trim().length === 0) {
+      logger.log("Trying to insert child to a style tag with virtual rules: ", this.nl[ parentID ], this.nl[ id ]);
       return;
     }
 
@@ -120,16 +119,18 @@ export default class DOMManager extends ListWalker<TimedMessage> {
 
   private applyMessage = (msg: Message): void => {
     let node;
+    let doc: Document | null;
     switch (msg.tp) {
       case "create_document":
-        // @ts-ignore ??
-        this.screen.document.open();
-        // @ts-ignore ??
-        this.screen.document.write(`${ msg.doctype || "<!DOCTYPE html>" }<html></html>`);
-        // @ts-ignore ??
-        this.screen.document.close();
-        // @ts-ignore ??
-        const fRoot = this.screen.document.documentElement;
+        doc = this.screen.document;
+        if (!doc) {
+          logger.error("No iframe document found", msg)
+          return;
+        }
+        doc.open();
+        doc.write("<!DOCTYPE html><html></html>");
+        doc.close();
+        const fRoot = doc.documentElement;
         fRoot.innerText = '';
         this.nl = [ fRoot ];
 
@@ -147,7 +148,7 @@ export default class DOMManager extends ListWalker<TimedMessage> {
         this.insertNode(msg);
       break;
       case "create_element_node":
-    //  console.log('elementnode', msg)
+      // console.log('elementnode', msg)
         if (msg.svg) {
           this.nl[ msg.id ] = document.createElementNS('http://www.w3.org/2000/svg', msg.tag);
         } else {
@@ -181,6 +182,9 @@ export default class DOMManager extends ListWalker<TimedMessage> {
           }
           this.stylesManager.setStyleHandlers(node, value);
         }
+        if (node.namespaceURI === 'http://www.w3.org/2000/svg' && value.startsWith("url(")) {
+          value = "url(#" + (value.split("#")[1] ||")")
+        }
         try {
           node.setAttribute(name, value);
         } catch(e) {
@@ -213,7 +217,7 @@ export default class DOMManager extends ListWalker<TimedMessage> {
         // @ts-ignore
         node.data = msg.data;
         if (node instanceof HTMLStyleElement) {
-          const doc = this.screen.document
+          doc = this.screen.document
           doc && rewriteNodeStyleSheet(doc, node)
         }
       break;
@@ -229,7 +233,11 @@ export default class DOMManager extends ListWalker<TimedMessage> {
           node.sheet.insertRule(msg.rule, msg.index)
         } catch (e) {
           logger.warn(e, msg)
-          node.sheet.insertRule(msg.rule)
+          try {
+            node.sheet.insertRule(msg.rule)
+          } catch (e) {
+            logger.warn("Cannot insert rule.", e, msg)
+          }
         }
       break;
       case "css_delete_rule":
@@ -247,21 +255,27 @@ export default class DOMManager extends ListWalker<TimedMessage> {
         }
       break;
       case "create_i_frame_document":
-      // console.log('ifr', msg)
         node = this.nl[ msg.frameID ];
-        if (!(node instanceof HTMLIFrameElement)) {
-          logger.warn("create_i_frame_document message. Node is not iframe")
-          return;
-        }
-        console.log("iframe", msg)
-      //   await new Promise(resolve => { node.onload = resolve })
+        // console.log('ifr', msg, node)
 
-        const doc = node.contentDocument;
-        if (!doc) {
-          logger.warn("No iframe doc", msg, node, node.contentDocument);
+        if (node instanceof HTMLIFrameElement) {
+          doc = node.contentDocument;
+          if (!doc) {
+            logger.warn("No iframe doc", msg, node, node.contentDocument);
+            return;
+          }
+          this.nl[ msg.id ] = doc.documentElement
           return;
+        } else if (node instanceof Element) { // shadow DOM
+          try {
+            this.nl[ msg.id ] = node.attachShadow({ mode: 'open' })
+          } catch(e) {
+            logger.warn("Can not attach shadow dom", e, msg)
+          }
+        } else {
+          logger.warn("Context message host is not Element", msg)
         }
-        this.nl[ msg.id ] = doc.documentElement
+        
       break;
         //not sure what to do with this one
       //case "disconnected":

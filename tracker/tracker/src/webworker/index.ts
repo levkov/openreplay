@@ -1,13 +1,13 @@
-import { classes, BatchMeta, Timestamp, SetPageVisibility, CreateDocument } from '../messages';
-import Message from '../messages/message';
-import Writer from '../messages/writer';
+import { classes, BatchMeta, Timestamp, SetPageVisibility, CreateDocument } from "../messages/index.js";
+import Message from "../messages/message.js";
+import Writer from "../messages/writer.js";
 
-import type { WorkerMessageData } from '../messages/webworker';
+import type { WorkerMessageData } from "../messages/webworker.js";
 
 
-const SEND_INTERVAL = 20 * 1000;
+const SEND_INTERVAL = 10 * 1000;
 let BEACON_SIZE_LIMIT = 1e6 // Limit is set in the backend/services/http
-let beaconSize = 4 * 1e5; // Default 400kB
+let beaconSize = 2 * 1e5; // Default 400kB
 
 
 let writer: Writer = new Writer(beaconSize);
@@ -26,7 +26,7 @@ function writeBatchMeta(): boolean { // TODO: move to encoder
   return new BatchMeta(pageNo, nextIndex, timestamp).encode(writer)
 }
 
-let sendIntervalID: ReturnType<typeof setInterval>;
+let sendIntervalID: ReturnType<typeof setInterval> | null = null;
 
 const sendQueue: Array<Uint8Array> = [];
 let busy = false;
@@ -49,7 +49,7 @@ function sendBatch(batch: Uint8Array):void {
       if (this.status >= 400) { // TODO: test workflow. After 400+ it calls /start for some reason
         reset();
         sendQueue.length = 0;
-        if (this.status === 403) { // Unauthorised (Token expired)
+        if (this.status === 401) { // Unauthorised (Token expired)
           self.postMessage("restart")
           return
         }
@@ -74,6 +74,7 @@ function sendBatch(batch: Uint8Array):void {
     attemptsCount++;
     setTimeout(() => sendBatch(batch), ATTEMPT_TIMEOUT);
   }
+  // TODO: handle offline exception
   req.send(batch.buffer);
 }
 
@@ -95,7 +96,10 @@ function send(): void {
 function reset() {
   ingestPoint = ""
   token = ""
-  clearInterval(sendIntervalID);
+  if (sendIntervalID !== null) {
+    clearInterval(sendIntervalID);
+    sendIntervalID = null;
+  }
   writer.reset();
 }
 
@@ -128,7 +132,7 @@ self.onmessage = ({ data }: MessageEvent<WorkerMessageData>) => {
     if (writer.isEmpty()) {
       writeBatchMeta();
     }
-    if (sendIntervalID == null) {
+    if (sendIntervalID === null) {
       sendIntervalID = setInterval(send, SEND_INTERVAL);
     }
     return;
@@ -141,7 +145,7 @@ self.onmessage = ({ data }: MessageEvent<WorkerMessageData>) => {
       timestamp = (<any>message).timestamp;
     } else if (message instanceof SetPageVisibility) {
       if ( (<any>message).hidden) {
-        restartTimeoutID = setTimeout(() => self.postMessage("restart"), 5*60*1000);
+        restartTimeoutID = setTimeout(() => self.postMessage("restart"), 30*60*1000);
       } else {
         clearTimeout(restartTimeoutID);
       }

@@ -1,6 +1,7 @@
-from chalicelib.utils.helper import environ
-from chalicelib.utils import pg_client
+from decouple import config
+
 from chalicelib.core import unlock
+from chalicelib.utils import pg_client
 
 
 def get_status(tenant_id):
@@ -12,11 +13,11 @@ def get_status(tenant_id):
     return {
         "hasActivePlan": unlock.is_valid(),
         "current": {
-            "edition": r.get("edition", "").upper(),
+            "edition": r.get("edition", "").lower(),
             "versionNumber": r.get("version_number", ""),
             "license": license[0:2] + "*" * (len(license) - 4) + license[-2:],
             "expirationDate": unlock.get_expiration_date(),
-            "teamMember": int(environ.get("numberOfSeats", 0))
+            "teamMember": config("numberOfSeats", cast=int, default=0)
         },
         "count": {
             "teamMember": r.get("t_users"),

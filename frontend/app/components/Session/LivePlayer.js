@@ -2,13 +2,14 @@ import { useEffect } from 'react';
 import { connect } from 'react-redux';
 import { Loader } from 'UI';
 import { toggleFullscreen, closeBottomBlock } from 'Duck/components/player';
-import { 
+import { withRequest } from 'HOCs'
+import {
   PlayerProvider,
   connectPlayer,
   init as initPlayer,
   clean as cleanPlayer,
 } from 'Player';
-import { Controls as PlayerControls } from 'Player';
+import withPermissions from 'HOCs/withPermissions'
 import Assist from 'Components/Assist'
 
 
@@ -30,17 +31,26 @@ const InitLoader = connectPlayer(state => ({
 }))(Loader);
 
 
-function WebPlayer ({ showAssist, session, toggleFullscreen, closeBottomBlock, live, fullscreen, jwt, config }) {
+function WebPlayer ({ showAssist, session, toggleFullscreen, closeBottomBlock, live, fullscreen, jwt, loadingCredentials, assistCredendials, request, isEnterprise, hasSessionsPath }) {
   useEffect(() => {
-    initPlayer(session, jwt, config);
+    if (!loadingCredentials) {
+      initPlayer(session, jwt, assistCredendials, !hasSessionsPath && session.live);
+    }
     return () => cleanPlayer()
-  }, [ session.sessionId ]);
+  }, [ session.sessionId, loadingCredentials, assistCredendials ]);
 
   // LAYOUT (TODO: local layout state - useContext or something..)
-  useEffect(() => () => {
-    toggleFullscreen(false);
-    closeBottomBlock();
+  useEffect(() => {
+    if (isEnterprise) {
+      request();
+    }
+    return () => {
+      toggleFullscreen(false);
+      closeBottomBlock();
+    }
   }, [])
+
+
   return (
     <PlayerProvider>
       <InitLoader className="flex-1 p-3">
@@ -52,17 +62,26 @@ function WebPlayer ({ showAssist, session, toggleFullscreen, closeBottomBlock, l
       </InitLoader>
     </PlayerProvider>
   );
-}
+};
 
-
-export default connect(state => ({
-  session: state.getIn([ 'sessions', 'current' ]),
-  showAssist: state.getIn([ 'sessions', 'showChatWindow' ]),
-  jwt: state.get('jwt'),
-  config: state.getIn([ 'user', 'account', 'iceServers' ]),
-  fullscreen: state.getIn([ 'components', 'player', 'fullscreen' ]),
-}), {
-  toggleFullscreen,
-  closeBottomBlock,
-})(WebPlayer) 
-
+export default withRequest({
+  initialData: null,
+	endpoint: '/assist/credentials',
+	dataWrapper: data => data,
+	dataName: 'assistCredendials',
+  loadingName: 'loadingCredentials',
+})(withPermissions(['SESSION_REPLAY', 'ASSIST_LIVE'], '', true)(connect(
+  state => {
+    const isAssist = state.getIn(['sessions', 'activeTab']).type === 'live';
+    const hasSessioPath = state.getIn([ 'sessions', 'sessionPath' ]).includes('/sessions');
+    return {
+      session: state.getIn([ 'sessions', 'current' ]),
+      showAssist: state.getIn([ 'sessions', 'showChatWindow' ]),
+      jwt: state.get('jwt'),
+      fullscreen: state.getIn([ 'components', 'player', 'fullscreen' ]),
+      hasSessionsPath: hasSessioPath && !isAssist,
+      isEnterprise: state.getIn([ 'user', 'client', 'edition' ]) === 'ee',
+    }
+  },
+  { toggleFullscreen, closeBottomBlock },
+)(WebPlayer)));
