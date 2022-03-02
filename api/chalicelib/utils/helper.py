@@ -216,7 +216,7 @@ def values_for_operator(value: Union[str, list], op: schemas.SearchEventOperator
             return value + '%'
         elif op == schemas.SearchEventOperator._ends_with:
             return '%' + value
-        elif op == schemas.SearchEventOperator._contains:
+        elif op == schemas.SearchEventOperator._contains or op == schemas.SearchEventOperator._not_contains:
             return '%' + value + '%'
     return value
 
@@ -366,3 +366,21 @@ def has_smtp():
 
 def get_edition():
     return "ee" if "ee" in config("ENTERPRISE_BUILD", default="").lower() else "foss"
+
+
+def old_search_payload_to_flat(values):
+    # in case the old search body was passed
+    if values.get("events") is not None:
+        for v in values["events"]:
+            v["isEvent"] = True
+        for v in values.get("filters", []):
+            v["isEvent"] = False
+        values["filters"] = values.pop("events") + values.get("filters", [])
+    return values
+
+
+def custom_alert_to_front(values):
+    # to support frontend format for payload
+    if values.get("seriesId") is not None and values["query"]["left"] == schemas.AlertColumn.custom:
+        values["query"]["left"] = values["seriesId"]
+    return values

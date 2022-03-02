@@ -1,6 +1,13 @@
 #!/bin/bash
 
+set -x
 cd $(dirname $0)
+
+is_migrate=$1
+
+# Converting alphaneumeric to number.
+PREVIOUS_APP_VERSION=`echo $PREVIOUS_APP_VERSION | cut -d "v" -f2`
+CHART_APP_VERSION=`echo $CHART_APP_VERSION | cut -d "v" -f2`
 
 function migration() {
     ls -la /opt/openreplay/openreplay
@@ -12,7 +19,9 @@ function migration() {
         exit 100
     fi
 
-    if [[ $PREVIOUS_APP_VERSION == $CHART_APP_VERSION ]]; then
+    if [[ $FORCE_MIGRATION == "true" ]]; then
+        echo "Forcing db migration from $PREVIOUS_APP_VERSION to $CHART_APP_VERSION"
+    elif [[ $PREVIOUS_APP_VERSION == $CHART_APP_VERSION ]]; then
         echo "No application version change. Not upgrading."
         exit 0
     fi
@@ -20,22 +29,24 @@ function migration() {
     # Checking migration versions
     cd /opt/openreplay/openreplay/scripts/helm
     migration_versions=(`ls -l db/init_dbs/$db | grep -E ^d | awk -v number=${PREVIOUS_APP_VERSION} '$NF > number {print $NF}' | grep -v create`)
-    echo "Migration version: $migration_versions"
+    echo "Migration version: ${migration_versions[*]}"
+    # Can't pass the space seperated array to ansible for migration. So joining them with ,
+    joined_migration_versions=$(IFS=, ; echo "${migration_versions[*]}")
     
     cd -
 
     case "$1" in
         postgresql)
-            /bin/bash postgresql.sh migrate $migration_versions
+            /bin/bash postgresql.sh migrate $joined_migration_versions
             ;;
         minio)
-            /bin/bash minio.sh migrate $migration_versions
+            /bin/bash minio.sh migrate $joined_migration_versions
             ;;
         clickhouse)
-            /bin/bash clickhouse.sh migrate $migration_versions
+            /bin/bash clickhouse.sh migrate $joined_migration_versions
             ;;
         kafka)
-            /bin/bash kafka.sh migrate $migration_versions
+            /bin/bash kafka.sh migrate $joined_migration_versions
             ;;
         *)
             echo "Unknown operation for db migration; exiting."
@@ -66,9 +77,12 @@ function init(){
     esac
 }
 
+if [[ $FORCE_MIGRATION == "true" ]]; then
+    is_migrate=true
+fi
 
 # dbops.sh true(upgrade) clickhouse
-case "$1" in
+case "$is_migrate" in
     "false")
         init $2
         ;;

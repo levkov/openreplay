@@ -9,21 +9,11 @@ import {
   init as initPlayer,
   clean as cleanPlayer,
 } from 'Player';
-import withPermissions from 'HOCs/withPermissions'
-import Assist from 'Components/Assist'
-
+import withPermissions from 'HOCs/withPermissions';
 
 import PlayerBlockHeader from '../Session_/PlayerBlockHeader';
-import EventsBlock from '../Session_/EventsBlock';
 import PlayerBlock from '../Session_/PlayerBlock';
 import styles from '../Session_/session.css';
-
-
-
-const EventsBlockConnected = connectPlayer(state => ({
-  currentTimeEventIndex: state.eventListNow.length > 0 ? state.eventListNow.length - 1 : 0,
-  playing: state.playing,
-}))(EventsBlock)
 
 
 const InitLoader = connectPlayer(state => ({ 
@@ -31,10 +21,10 @@ const InitLoader = connectPlayer(state => ({
 }))(Loader);
 
 
-function WebPlayer ({ showAssist, session, toggleFullscreen, closeBottomBlock, live, fullscreen, jwt, loadingCredentials, assistCredendials, request, isEnterprise, hasSessionsPath }) {
+function LivePlayer ({ session, toggleFullscreen, closeBottomBlock, fullscreen, jwt, loadingCredentials, assistCredendials, request, isEnterprise, hasErrors }) {
   useEffect(() => {
     if (!loadingCredentials) {
-      initPlayer(session, jwt, assistCredendials, !hasSessionsPath && session.live);
+      initPlayer(session, jwt, assistCredendials, true);
     }
     return () => cleanPlayer()
   }, [ session.sessionId, loadingCredentials, assistCredendials ]);
@@ -50,12 +40,10 @@ function WebPlayer ({ showAssist, session, toggleFullscreen, closeBottomBlock, l
     }
   }, [])
 
-
   return (
     <PlayerProvider>
       <InitLoader className="flex-1 p-3">
-        { showAssist && <Assist session={session} /> }
-        <PlayerBlockHeader fullscreen={fullscreen}/>
+        <PlayerBlockHeader fullscreen={fullscreen} />
         <div className={ styles.session } data-fullscreen={fullscreen}>
           <PlayerBlock />
         </div>
@@ -70,18 +58,19 @@ export default withRequest({
 	dataWrapper: data => data,
 	dataName: 'assistCredendials',
   loadingName: 'loadingCredentials',
-})(withPermissions(['SESSION_REPLAY', 'ASSIST_LIVE'], '', true)(connect(
+})(withPermissions(['ASSIST_LIVE'], '', true)(connect(
   state => {
-    const isAssist = state.getIn(['sessions', 'activeTab']).type === 'live';
-    const hasSessioPath = state.getIn([ 'sessions', 'sessionPath' ]).includes('/sessions');
+    // const isAssist = state.getIn(['sessions', 'activeTab']).type === 'live';
+    // const hasSessioPath = state.getIn([ 'sessions', 'sessionPath' ]).includes('/sessions');
     return {
       session: state.getIn([ 'sessions', 'current' ]),
       showAssist: state.getIn([ 'sessions', 'showChatWindow' ]),
       jwt: state.get('jwt'),
       fullscreen: state.getIn([ 'components', 'player', 'fullscreen' ]),
-      hasSessionsPath: hasSessioPath && !isAssist,
+      // hasSessionsPath: hasSessioPath && !isAssist,
       isEnterprise: state.getIn([ 'user', 'client', 'edition' ]) === 'ee',
+      hasErrors: !!state.getIn([ 'sessions', 'errors' ]),
     }
   },
   { toggleFullscreen, closeBottomBlock },
-)(WebPlayer)));
+)(LivePlayer)));

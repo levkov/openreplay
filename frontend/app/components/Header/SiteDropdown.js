@@ -9,6 +9,10 @@ import { init } from 'Duck/site';
 import styles from './siteDropdown.css';
 import cn from 'classnames';
 import NewSiteForm from '../Client/Sites/NewSiteForm';
+import { clearSearch } from 'Duck/search';
+import { fetchList as fetchIntegrationVariables } from 'Duck/customField';
+import { fetchList as fetchAlerts } from 'Duck/alerts';
+import {  fetchWatchdogStatus } from 'Duck/watchdogs';
 
 @withRouter
 @connect(state => ({  
@@ -18,10 +22,18 @@ import NewSiteForm from '../Client/Sites/NewSiteForm';
 }), {
   setSiteId,
   pushNewSite,
-  init
+  init,
+  clearSearch,
+  fetchIntegrationVariables,
+  fetchAlerts,
+  fetchWatchdogStatus,
 })
 export default class SiteDropdown extends React.PureComponent {
   state = { showProductModal: false }
+
+  // componentDidMount() {
+  //   this.props.fetchIntegrationVariables();
+  // }
 
   closeModal = (e, newSite) => {
     this.setState({ showProductModal: false })    
@@ -30,6 +42,14 @@ export default class SiteDropdown extends React.PureComponent {
   newSite = () => {
     this.props.init({})
     this.setState({showProductModal: true})
+  }
+
+  switchSite = (siteId) => {
+    this.props.setSiteId(siteId);
+    this.props.clearSearch();
+    this.props.fetchIntegrationVariables();
+    this.props.fetchAlerts();
+    this.props.fetchWatchdogStatus();
   }
 
   render() {
@@ -54,7 +74,7 @@ export default class SiteDropdown extends React.PureComponent {
             { !showCurrent && <li>{ 'Does not require domain selection.' }</li>}
             {
               sites.map(site => (
-                <li key={ site.id } onClick={ () => this.props.setSiteId(site.id) }>
+                <li key={ site.id } onClick={() => this.switchSite(site.id)}>
                   <Icon 
                     name="circle"
                     size="8"

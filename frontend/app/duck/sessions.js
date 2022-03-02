@@ -74,7 +74,6 @@ const reducer = (state = initialState, action = {}) => {
     case FETCH_ERROR_STACK.SUCCESS:
       return state.set('errorStack', List(action.data.trace).map(ErrorStack)).set('sourcemapUploaded', action.data.sourcemapUploaded)
     case FETCH_LIVE_LIST.SUCCESS:
-      // const { sessions, total } = action.data;
       const liveList = List(action.data).map(s => new Session({...s, live: true}));
       return state
         .set('liveSessions', liveList)
@@ -271,12 +270,7 @@ function init(session) {
 }
 
 export const fetchList = (params = {}, clear = false, live = false) => (dispatch, getState) => {
-  const activeTab = getState().getIn([ 'sessions', 'activeTab' ]);  
-
-  return dispatch((activeTab && activeTab.type === 'live' || live )? {
-    types: FETCH_LIVE_LIST.toArray(),
-    call: client => client.post('/assist/sessions', params),
-  } : {
+  return dispatch({
     types: FETCH_LIST.toArray(),
     call: client => client.post('/sessions/search2', params),
     clear,

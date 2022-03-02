@@ -22,7 +22,6 @@ import StackEvents from './StackEvents/StackEvents';
 import Storage from './Storage';
 import Profiler from './Profiler';
 import { ConnectedPerformance } from './Performance';
-import PlayerBlockHeader from './PlayerBlockHeader';
 import GraphQL from './GraphQL';
 import Fetch from './Fetch';
 import Exceptions from './Exceptions/Exceptions';

@@ -60,6 +60,7 @@ function _getTarget(target: Element): Element | null {
       tag === 'BUTTON' ||
       tag === 'A' ||
       tag === 'LI' ||
+      tag === 'SELECT' ||
       (element as HTMLElement).onclick != null ||
       element.getAttribute('role') === 'button' ||
       getLabelAttribute(element) !== null
@@ -89,10 +90,11 @@ export default function (app: App): void {
     if (tag === 'BUTTON' ||
         tag === 'A' ||
         tag === 'LI' ||
+        tag === 'SELECT' ||
         (target as HTMLElement).onclick != null ||
         target.getAttribute('role') === 'button'
       ) {
-      const label: string = app.observer.getInnerTextSecure(target as HTMLElement);
+      const label: string = app.sanitizer.getInnerTextSecure(target as HTMLElement);
       return normSpaces(label).slice(0, 100);
     }
     return '';

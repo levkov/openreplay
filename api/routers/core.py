@@ -29,12 +29,13 @@ def get_favorite_sessions(projectId: int, context: schemas.CurrentContext = Depe
 
 
 @app.get('/{projectId}/sessions2/{sessionId}', tags=["sessions"])
-def get_session2(projectId: int, sessionId: int, context: schemas.CurrentContext = Depends(OR_context)):
+def get_session2(projectId: int, sessionId: Union[int, str], context: schemas.CurrentContext = Depends(OR_context)):
+    if isinstance(sessionId, str):
+        return {"errors": ["session not found"]}
     data = sessions.get_by_id2_pg(project_id=projectId, session_id=sessionId, full_data=True, user_id=context.user_id,
                                   include_fav_viewed=True, group_metadata=True)
     if data is None:
         return {"errors": ["session not found"]}
-
     sessions_favorite_viewed.view_session(project_id=projectId, user_id=context.user_id, session_id=sessionId)
     return {
         'data': data
@@ -99,16 +100,31 @@ def comment_assignment(projectId: int, sessionId: int, issueId: str, data: schem
 
 
 @app.get('/{projectId}/events/search', tags=["events"])
-def events_search(projectId: int, q: str, type: Union[schemas.FilterType, schemas.EventType] = None, key: str = None,
+def events_search(projectId: int, q: str,
+                  type: Union[schemas.FilterType, schemas.EventType, schemas.PerformanceEventType] = None,
+                  key: str = None,
                   source: str = None, context: schemas.CurrentContext = Depends(OR_context)):
     if len(q) == 0:
         return {"data": []}
+    if isinstance(type, schemas.PerformanceEventType):
+        if type in [schemas.PerformanceEventType.location_dom_complete,
+                    schemas.PerformanceEventType.location_largest_contentful_paint_time,
+                    schemas.PerformanceEventType.location_ttfb,
+                    schemas.PerformanceEventType.location_avg_cpu_load,
+                    schemas.PerformanceEventType.location_avg_memory_usage
+                    ]:
+            type = schemas.EventType.location
+        elif type in [schemas.PerformanceEventType.fetch_failed]:
+            type = schemas.EventType.request
+        else:
+            return {"data": []}
+
     result = events.search_pg2(text=q, event_type=type, project_id=projectId, source=source, key=key)
     return result
 
 
 @app.post('/{projectId}/sessions/search2', tags=["sessions"])
-def sessions_search2(projectId: int, data: schemas.SessionsSearchPayloadSchema = Body(...),
+def sessions_search2(projectId: int, data: schemas.FlatSessionsSearchPayloadSchema = Body(...),
                      context: schemas.CurrentContext = Depends(OR_context)):
     data = sessions.search2_pg(data, projectId, user_id=context.user_id)
     return {'data': data}
@@ -621,6 +637,12 @@ def get_all_alerts(projectId: int, context: schemas.CurrentContext = Depends(OR_
     return {"data": alerts.get_all(projectId)}
 
 
+@app.get('/{projectId}/alerts/triggers', tags=["alerts", "customMetrics"])
+def get_alerts_triggers(projectId: int, context: schemas.CurrentContext = Depends(OR_context)):
+    return {"data": alerts.get_predefined_values() \
+                    + custom_metrics.get_series_for_alert(project_id=projectId, user_id=context.user_id)}
+
+
 @app.get('/{projectId}/alerts/{alertId}', tags=["alerts"])
 def get_alert(projectId: int, alertId: int, context: schemas.CurrentContext = Depends(OR_context)):
     return {"data": alerts.get(alertId)}
@@ -809,14 +831,14 @@ def all_issue_types(context: schemas.CurrentContext = Depends(OR_context)):
 
 @app.get('/{projectId}/assist/sessions', tags=["assist"])
 def sessions_live(projectId: int, context: schemas.CurrentContext = Depends(OR_context)):
-    data = assist.get_live_sessions(projectId)
+    data = assist.get_live_sessions_ws(projectId)
     return {'data': data}
 
 
 @app.post('/{projectId}/assist/sessions', tags=["assist"])
 def sessions_live_search(projectId: int, data: schemas.AssistSearchPayloadSchema = Body(...),
                          context: schemas.CurrentContext = Depends(OR_context)):
-    data = assist.get_live_sessions(projectId, filters=data.filters)
+    data = assist.get_live_sessions_ws(projectId)
     return {'data': data}
 
 
@@ -1048,6 +1070,13 @@ def edit_account(data: schemas.EditUserSchema = Body(...),
                       editor_id=context.user_id)
 
 
+@app.post('/account/appearance', tags=["account"])
+@app.put('/account/appearance', tags=["account"])
+def edit_account_appearance(data: schemas.EditUserAppearanceSchema = Body(...),
+                            context: schemas.CurrentContext = Depends(OR_context)):
+    return users.edit_appearance(tenant_id=context.tenant_id, user_id=context.user_id, changes=data.dict())
+
+
 @app.post('/account/password', tags=["account"])
 @app.put('/account/password', tags=["account"])
 def change_client_password(data: schemas.EditUserPasswordSchema = Body(...),
@@ -1061,7 +1090,15 @@ def change_client_password(data: schemas.EditUserPasswordSchema = Body(...),
 @app.put('/{projectId}/custom_metrics/try', tags=["customMetrics"])
 def try_custom_metric(projectId: int, data: schemas.TryCustomMetricsSchema = Body(...),
                       context: schemas.CurrentContext = Depends(OR_context)):
-    return {"data": custom_metrics.try_live(project_id=projectId, data=data)}
+    return {"data": custom_metrics.merged_live
+    (project_id=projectId, data=data)}
+
+
+@app.post('/{projectId}/custom_metrics/sessions', tags=["customMetrics"])
+def get_custom_metric_sessions(projectId: int, data: schemas.CustomMetricRawPayloadSchema2 = Body(...),
+                               context: schemas.CurrentContext = Depends(OR_context)):
+    return {"data": custom_metrics.get_sessions(project_id=projectId, user_id=context.user_id, metric_id=data.metric_id,
+                                                data=data)}
 
 
 @app.post('/{projectId}/custom_metrics/chart', tags=["customMetrics"])
@@ -1070,11 +1107,6 @@ def get_custom_metric_chart(projectId: int, data: schemas.CustomMetricChartPaylo
                             context: schemas.CurrentContext = Depends(OR_context)):
     return {"data": custom_metrics.make_chart(project_id=projectId, user_id=context.user_id, metric_id=data.metric_id,
                                               data=data)}
-
-
-@app.get('/{projectId}/custom_metrics/series', tags=["customMetrics"])
-def get_series_for_alert(projectId: int, context: schemas.CurrentContext = Depends(OR_context)):
-    return {"data": custom_metrics.get_series_for_alert(project_id=projectId, user_id=context.user_id)}
 
 
 @app.post('/{projectId}/custom_metrics', tags=["customMetrics"])
@@ -1094,6 +1126,13 @@ def get_custom_metric(projectId: int, metric_id: int, context: schemas.CurrentCo
     return {"data": custom_metrics.get(project_id=projectId, user_id=context.user_id, metric_id=metric_id)}
 
 
+@app.post('/{projectId}/custom_metrics/{metric_id}/sessions', tags=["customMetrics"])
+def get_custom_metric_sessions(projectId: int, metric_id: int, data: schemas.CustomMetricRawPayloadSchema = Body(...),
+                               context: schemas.CurrentContext = Depends(OR_context)):
+    return {"data": custom_metrics.get_sessions(project_id=projectId, user_id=context.user_id, metric_id=metric_id,
+                                                data=data)}
+
+
 @app.post('/{projectId}/custom_metrics/{metric_id}/chart', tags=["customMetrics"])
 def get_custom_metric_chart(projectId: int, metric_id: int, data: schemas.CustomMetricChartPayloadSchema = Body(...),
                             context: schemas.CurrentContext = Depends(OR_context)):
@@ -1107,6 +1146,16 @@ def update_custom_metric(projectId: int, metric_id: int, data: schemas.UpdateCus
                          context: schemas.CurrentContext = Depends(OR_context)):
     return {
         "data": custom_metrics.update(project_id=projectId, user_id=context.user_id, metric_id=metric_id, data=data)}
+
+
+@app.post('/{projectId}/custom_metrics/{metric_id}/status', tags=["customMetrics"])
+@app.put('/{projectId}/custom_metrics/{metric_id}/status', tags=["customMetrics"])
+def update_custom_metric_state(projectId: int, metric_id: int,
+                               data: schemas.UpdateCustomMetricsStatusSchema = Body(...),
+                               context: schemas.CurrentContext = Depends(OR_context)):
+    return {
+        "data": custom_metrics.change_state(project_id=projectId, user_id=context.user_id, metric_id=metric_id,
+                                            status=data.active)}
 
 
 @app.delete('/{projectId}/custom_metrics/{metric_id}', tags=["customMetrics"])
@@ -1123,7 +1172,7 @@ def add_saved_search(projectId: int, data: schemas.SavedSearchSchema = Body(...)
 
 @app.get('/{projectId}/saved_search', tags=["savedSearch"])
 def get_saved_searches(projectId: int, context: schemas.CurrentContext = Depends(OR_context)):
-    return {"data": saved_search.get_all(project_id=projectId, user_id=context.user_id)}
+    return {"data": saved_search.get_all(project_id=projectId, user_id=context.user_id, details=True)}
 
 
 @app.get('/{projectId}/saved_search/{search_id}', tags=["savedSearch"])
@@ -1141,3 +1190,11 @@ def update_saved_search(projectId: int, search_id: int, data: schemas.SavedSearc
 @app.delete('/{projectId}/saved_search/{search_id}', tags=["savedSearch"])
 def delete_saved_search(projectId: int, search_id: int, context: schemas.CurrentContext = Depends(OR_context)):
     return {"data": saved_search.delete(project_id=projectId, user_id=context.user_id, search_id=search_id)}
+
+
+@public_app.get('/', tags=["health"])
+@public_app.post('/', tags=["health"])
+@public_app.put('/', tags=["health"])
+@public_app.delete('/', tags=["health"])
+def health_check():
+    return {"data": f"live {config('version_number', default='')}"}

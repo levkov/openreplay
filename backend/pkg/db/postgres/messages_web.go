@@ -1,11 +1,11 @@
 package postgres
 
 import (
-  "math"
+	"math"
 
 	"openreplay/backend/pkg/hashid"
-	"openreplay/backend/pkg/url"
 	. "openreplay/backend/pkg/messages"
+	"openreplay/backend/pkg/url"
 )
 
 // TODO: change messages and replace everywhere to e.Index
@@ -68,16 +68,19 @@ func (conn *Conn) InsertWebPageEvent(sessionID uint64, e *PageEvent) error {
 	if err := tx.exec(`
 		INSERT INTO events.pages (
 			session_id, message_id, timestamp, referrer, base_referrer, host, path, base_path,
-			dom_content_loaded_time, load_time, response_end, first_paint_time, first_contentful_paint_time, speed_index, visually_complete, time_to_interactive,
+			dom_content_loaded_time, load_time, response_end, first_paint_time, first_contentful_paint_time, 
+			speed_index, visually_complete, time_to_interactive,
 			response_time, dom_building_time
 		) VALUES (
 			$1, $2, $3, $4, $5, $6, $7, $8,
-			NULLIF($9, 0), NULLIF($10, 0), NULLIF($11, 0), NULLIF($12, 0), NULLIF($13, 0), NULLIF($14, 0), NULLIF($15, 0), NULLIF($16, 0),
+			NULLIF($9, 0), NULLIF($10, 0), NULLIF($11, 0), NULLIF($12, 0), NULLIF($13, 0), 
+			NULLIF($14, 0), NULLIF($15, 0), NULLIF($16, 0),
 			NULLIF($17, 0), NULLIF($18, 0)
 		)
 		`,
 		sessionID, e.MessageID, e.Timestamp, e.Referrer, url.DiscardURLQuery(e.Referrer), host, path, url.DiscardURLQuery(path),
-		e.DomContentLoadedEventEnd, e.LoadEventEnd, e.ResponseEnd, e.FirstPaint, e.FirstContentfulPaint, e.SpeedIndex, e.VisuallyComplete, e.TimeToInteractive,
+		e.DomContentLoadedEventEnd, e.LoadEventEnd, e.ResponseEnd, e.FirstPaint, e.FirstContentfulPaint, 
+		e.SpeedIndex, e.VisuallyComplete, e.TimeToInteractive,
 		calcResponseTime(e), calcDomBuildingTime(e),
 	); err != nil {
 		return err
@@ -172,11 +175,12 @@ func (conn *Conn) InsertWebErrorEvent(sessionID uint64, projectID uint32, e *Err
 	}
 	defer tx.rollback()
 	errorID := hashid.WebErrorID(projectID, e)
+
 	if err = tx.exec(`
 		INSERT INTO errors
 			(error_id, project_id, source, name, message, payload)
 		VALUES
-			($1, $2, $3, $4, $5, $6)
+			($1, $2, $3, $4, $5, $6::jsonb)
 		ON CONFLICT DO NOTHING`,
 		errorID, projectID, e.Source, e.Name, e.Message, e.Payload,
 	); err != nil {

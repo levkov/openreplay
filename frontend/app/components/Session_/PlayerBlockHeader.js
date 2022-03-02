@@ -2,26 +2,26 @@ import { connect } from 'react-redux';
 import { withRouter } from 'react-router-dom';
 import { browserIcon, osIcon, deviceTypeIcon } from 'App/iconNames';
 import { formatTimeOrDate } from 'App/date';
-import { sessions as sessionsRoute, funnel as funnelRoute, funnelIssue as funnelIssueRoute, withSiteId } from 'App/routes';
-import { Icon, CountryFlag, IconButton, BackLink } from 'UI';
+import { sessions as sessionsRoute, assist as assistRoute, liveSession as liveSessionRoute, withSiteId } from 'App/routes';
+import { Icon, CountryFlag, IconButton, BackLink, Popup, Link } from 'UI';
 import { toggleFavorite, setSessionPath } from 'Duck/sessions';
 import cn from 'classnames';
 import { connectPlayer } from 'Player';
-import HeaderInfo from './HeaderInfo';
+// import HeaderInfo from './HeaderInfo';
 import SharePopup from '../shared/SharePopup/SharePopup';
 import { fetchList as fetchListIntegration } from 'Duck/integrations/actions';
+import { countries } from 'App/constants';
+import SessionMetaList from 'Shared/SessionItem/SessionMetaList';
 
 import stl from './playerBlockHeader.css';
 import Issues from './Issues/Issues';
 import Autoplay from './Autoplay';
 import AssistActions from '../Assist/components/AssistActions';
 import AssistTabs from '../Assist/components/AssistTabs';
+import SessionInfoItem from './SessionInfoItem'
 
 const SESSIONS_ROUTE = sessionsRoute();
-
-function capitalise(str) {
-  return str[0].toUpperCase() + str.slice(1);
-}
+const ASSIST_ROUTE = assistRoute();
 @connectPlayer(state => ({
   width: state.width,
   height: state.height,
@@ -29,10 +29,11 @@ function capitalise(str) {
   loading: state.cssLoading || state.messagesLoading,
 }))
 @connect((state, props) => {
-  const isAssist = state.getIn(['sessions', 'activeTab']).type === 'live';
+  const isAssist = window.location.pathname.includes('/assist/');
   const hasSessioPath = state.getIn([ 'sessions', 'sessionPath' ]).includes('/sessions');
+  const session = state.getIn([ 'sessions', 'current' ]);
   return {
-    session: state.getIn([ 'sessions', 'current' ]),
+    session,
     sessionPath: state.getIn([ 'sessions', 'sessionPath' ]),
     loading: state.getIn([ 'sessions', 'toggleFavoriteRequest', 'loading' ]),
     disabled: state.getIn([ 'components', 'targetDefiner', 'inspectorMode' ]) || props.loading,
@@ -41,8 +42,9 @@ function capitalise(str) {
     local: state.getIn(['sessions', 'timezone']),
     funnelRef: state.getIn(['funnels', 'navRef']),
     siteId: state.getIn([ 'user', 'siteId' ]),
-    funnelPage: state.getIn(['sessions', 'funnelPage']),
     hasSessionsPath: hasSessioPath && !isAssist,
+    metaList: state.getIn(['customFields', 'list']).map(i => i.key),
+    closedLive: !!state.getIn([ 'sessions', 'errors' ]) || (isAssist && !session.live),
   }
 }, {
   toggleFavorite, fetchListIntegration, setSessionPath
@@ -54,29 +56,22 @@ export default class PlayerBlockHeader extends React.PureComponent {
       this.props.fetchListIntegration('issues')
   }
 
-  getDimension = (width, height) => (
-    <div className="flex items-center">
-      { width || 'x' } <Icon name="close" size="12" className="mx-1" /> { height || 'x' }
-    </div>
-  );
+  getDimension = (width, height) => {
+    return width && height ? (
+      <div className="flex items-center">
+        { width || 'x' } <Icon name="close" size="12" className="mx-1" /> { height || 'x' }
+      </div>
+    ) : <span className="">Resolution N/A</span>;
+  }
 
   backHandler = () => {
-    const { history, siteId, funnelPage, sessionPath } = this.props;
-    // alert(sessionPath)
-    if (sessionPath === history.location.pathname) {
-      history.push(withSiteId(SESSIONS_ROUTE), siteId);
+    const { history, siteId, sessionPath } = this.props;
+    const isLiveSession = sessionPath.includes("/assist");
+    if (sessionPath === history.location.pathname || sessionPath.includes("/session/") || isLiveSession) {
+      history.push(withSiteId(isLiveSession ? ASSIST_ROUTE: SESSIONS_ROUTE, siteId));
     } else {
       history.push(sessionPath ? sessionPath : withSiteId(SESSIONS_ROUTE, siteId));
     }
-    // const funnelId = funnelPage && funnelPage.get('funnelId');
-    // const issueId = funnelPage && funnelPage.get('issueId');
-    // if (funnelId || issueId) {
-    //   if (issueId) {
-    //     history.push(withSiteId(funnelIssueRoute(funnelId, issueId), siteId))
-    //   } else
-    //     history.push(withSiteId(funnelRoute(funnelId), siteId));
-    // } else 
-    //   history.push(withSiteId(SESSIONS_ROUTE), siteId);
   }
 
   toggleFavorite = () => {
@@ -92,73 +87,106 @@ export default class PlayerBlockHeader extends React.PureComponent {
         sessionId,
         userCountry,
         userId,
+        userNumericHash,
         favorite,
         startedAt,
         userBrowser,
         userOs,
+        userOsVersion,
         userDevice,
         userBrowserVersion,
         userDeviceType,
         live,
+        metadata,
       },
       loading,
       // live,
       disabled,
       jiraConfig,
       fullscreen,
-      hasSessionsPath
+      hasSessionsPath,
+      sessionPath,
+      metaList,
+      closedLive = false,
+      siteId,
     } = this.props;
-    // const { history, siteId } = this.props;
     const _live = live && !hasSessionsPath;
+
+    const _metaList = Object.keys(metadata).filter(i => metaList.includes(i)).map(key => {
+      const value = metadata[key];
+      return { label: key, value };
+    });
 
     return (
       <div className={ cn(stl.header, "flex justify-between", { "hidden" : fullscreen}) }>
-        <div className="flex w-full">
+        <div className="flex w-full items-center">
           <BackLink	onClick={this.backHandler} label="Back" />
           
           <div className={ stl.divider } />
-          
-          <div className="mx-4 flex items-center">
-            <CountryFlag country={ userCountry } />
-            <div className="ml-2 font-normal color-gray-dark mt-1 text-sm">
-              { formatTimeOrDate(startedAt) } <span>{ this.props.local === 'UTC' ? 'UTC' : ''}</span>
-            </div>
-          </div>
+          { _live && <AssistTabs userId={userId} userNumericHash={userNumericHash} />}
 
-          <HeaderInfo icon={ browserIcon(userBrowser) } label={ `v${ userBrowserVersion }` } />
-          <HeaderInfo icon={ deviceTypeIcon(userDeviceType) } label={ capitalise(userDevice) } />
-          <HeaderInfo icon="expand-wide" label={ this.getDimension(width, height) } />
-          <HeaderInfo icon={ osIcon(userOs) } label={ userOs } />
-
-          <div className='ml-auto flex items-center'>
+          <div className={cn("ml-auto flex items-center", { 'hidden' : closedLive })}>
             { live && hasSessionsPath && (
-              <div className={stl.liveSwitchButton} onClick={() => this.props.setSessionPath('')}>
-                This Session is Now Continuing Live
-              </div>
+              <>
+                <div className={stl.liveSwitchButton}>
+                  <Link to={withSiteId(liveSessionRoute(sessionId), siteId)}>
+                      This Session is Now Continuing Live
+                  </Link>
+                </div>
+                <div className={ stl.divider } />
+              </>
             )}
-            { _live && <AssistTabs userId={userId} />}
+            
+            { _live && (
+              <>
+                <SessionMetaList className="" metaList={_metaList} maxLength={3} />
+                <div className={ stl.divider } />
+              </>
+            )}
+            
+            <Popup
+                trigger={(
+                  <IconButton icon="info-circle" primaryText label="More Info" disabled={disabled} />
+                )}
+                content={(
+                  <div className=''>
+                    <SessionInfoItem comp={<CountryFlag country={ userCountry } />} label={countries[userCountry]} value={ formatTimeOrDate(startedAt) } />
+                    <SessionInfoItem icon={browserIcon(userBrowser)} label={userBrowser} value={ `v${ userBrowserVersion }` } />
+                    <SessionInfoItem icon={osIcon(userOs)} label={userOs} value={ userOsVersion } />
+                    <SessionInfoItem icon={deviceTypeIcon(userDeviceType)} label={userDeviceType} value={ this.getDimension(width, height) } isLast />
+                  </div>
+                )}
+                on="click"
+                position="top center"
+                hideOnScroll
+            />
+            <div className={ stl.divider } />
             { _live && <AssistActions isLive userId={userId} /> }
             { !_live && (
               <>
                 <Autoplay />
                 <div className={ stl.divider } />
                 <IconButton
-                  className="mr-2"
+                  // className="mr-2"
                   tooltip="Bookmark"
+                  tooltipPosition="top right"
                   onClick={ this.toggleFavorite }
                   loading={ loading }
                   icon={ favorite ? 'star-solid' : 'star' }                  
                   plain
                 />
+                <div className={ stl.divider } />
                 <SharePopup
                   entity="sessions"
                   id={ sessionId }
+                  showCopyLink={true}
                   trigger={
                     <IconButton
-                      className="mr-2"
+                      // className="mr-2"
                       tooltip="Share Session"
+                      tooltipPosition="top right"
                       disabled={ disabled }
-                      icon={ 'share-alt' }                      
+                      icon={ 'share-alt' }
                       plain
                     />
                   }
@@ -172,3 +200,4 @@ export default class PlayerBlockHeader extends React.PureComponent {
     );
   }
 }
+

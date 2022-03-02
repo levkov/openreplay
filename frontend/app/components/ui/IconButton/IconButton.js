@@ -9,8 +9,10 @@ const IconButton = React.forwardRef(({
   onClick,
   plain = false,
   shadow = false,
+  red = false,
   primary = false,
   primaryText = false,
+  redText = false,
   outline = false,
   loading = false,
   roundedOutline = false,
@@ -24,11 +26,13 @@ const IconButton = React.forwardRef(({
   name,
   disabled = false,
   tooltip = false,
+  tooltipPosition = 'top',
   compact = false,
   ...rest
 }, ref) => (
   <Tooltip
     tooltip={tooltip}
+    position={tooltipPosition}
     trigger={ 
       <button
         ref={ ref }
@@ -38,7 +42,9 @@ const IconButton = React.forwardRef(({
           [ stl.active ]: active,
           [ stl.shadow ]: shadow,
           [ stl.primary ]: primary,
+          [ stl.red ]: red,
           [ stl.primaryText ]: primaryText,
+          [ stl.redText ]: redText,
           [ stl.outline ]: outline,
           [ stl.circle ]: circle,
           [ stl.roundedOutline ]: roundedOutline,

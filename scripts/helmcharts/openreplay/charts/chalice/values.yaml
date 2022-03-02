@@ -69,7 +69,7 @@ resources: {}
   #   memory: 128Mi
 
 autoscaling:
-  enabled: true
+  enabled: false
   minReplicas: 1
   maxReplicas: 5
   targetCPUUtilizationPercentage: 80
@@ -94,6 +94,7 @@ env:
   idp_x509cert: ''
   idp_sls_url: ''
   idp_name: ''
+  idp_tenantKey: ''
   assist_secret: ''
   iceServers: ''
 

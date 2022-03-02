@@ -47,17 +47,19 @@ spec:
               value: '{{ .Values.global.s3.endpoint }}'
               {{- end}}
             - name: S3_KEY
-              value: "{{ .Values.global.s3.accessKey }}"
+              value: {{ .Values.global.s3.accessKey }}
             - name: S3_SECRET
-              value: "{{ .Values.global.s3.secretKey }}"
+              value: {{ .Values.global.s3.secretKey }}
             {{- range $key, $val := .Values.env }}
             - name: {{ $key }}
               value: '{{ $val }}'
             {{- end}}
           ports:
-            - name: http
-              containerPort: {{ .Values.service.port }}
+            {{- range $key, $val := .Values.service.ports }}
+            - name: {{ $key }}
+              containerPort: {{ $val }}
               protocol: TCP
+            {{- end }}
           resources:
             {{- toYaml .Values.resources | nindent 12 }}
       {{- with .Values.nodeSelector }}

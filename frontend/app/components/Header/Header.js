@@ -4,6 +4,7 @@ import { NavLink, withRouter } from 'react-router-dom';
 import cn from 'classnames';
 import { 
   sessions,
+  assist,
   client,
   errors,
   dashboard,
@@ -27,6 +28,7 @@ import Alerts from '../Alerts/Alerts';
 
 const DASHBOARD_PATH = dashboard();
 const SESSIONS_PATH = sessions();
+const ASSIST_PATH = assist();
 const ERRORS_PATH = errors();
 const CLIENT_PATH = client(CLIENT_DEFAULT_TAB);
 const AUTOREFRESH_INTERVAL = 30 * 1000;
@@ -64,10 +66,6 @@ const Header = (props) => {
     }
   }, [showTrackingModal])
 
-  useEffect(() => {
-    fetchSiteList()
-  }, [])
-
   return (
     <div className={ cn(styles.header, showTrackingModal ? styles.placeOnTop : '') }>
       <NavLink to={ withSiteId(SESSIONS_PATH, siteId) }>
@@ -85,6 +83,13 @@ const Header = (props) => {
         activeClassName={ styles.active }
       >
         { 'Sessions' }
+      </NavLink>
+      <NavLink
+        to={ withSiteId(ASSIST_PATH, siteId) }
+        className={ styles.nav }
+        activeClassName={ styles.active }
+      >
+        { 'Assist' }
       </NavLink>
       <NavLink
         to={ withSiteId(ERRORS_PATH, siteId) }

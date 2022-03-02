@@ -1,4 +1,4 @@
-fromVersion: "v1.4.0"
+fromVersion: "v1.5.2"
 # Databases specific variables
 postgresql: &postgres
   # For generating passwords
@@ -8,10 +8,17 @@ postgresql: &postgres
   postgresqlPort: "5432"
   postgresqlUser: "postgres"
   postgresqlDatabase: "postgres"
+  # resources:
+  #   requests:
+  #     memory: 256Mi
+  #     cpu: 250m
+  #   limits:
+  #     memory: 3000Mi
+  #     cpu: 2
 
-clickhouse: {}
+clickhouse:
   # For enterpriseEdition
-  # enabled: true
+  enabled: false
 
 kafka: &kafka
   # For enterpriseEdition
@@ -43,8 +50,8 @@ global:
     region: "us-east-1"
     endpoint: "http://minio.db.svc.cluster.local:9000"
     assetsBucket: "sessions-assets"
-    recordings_bucket: "mobs"
-    sourcemaps_bucket: "sourcemaps"
+    recordingsBucket: "mobs"
+    sourcemapsBucket: "sourcemaps"
     # if you're using one node installation, where
     # you're using local s3, make sure these variables
     # are same as minio.global.minio.accesskey and  secretKey
@@ -64,52 +71,52 @@ global:
   enterpriseEditionLicense: ""
   domainName: ""
 
+# If there is multiple nodes in the kubernetes cluster,
+# we'll have to create a NFS share PVC for both the containers to share data.
+# If it's the single node, we'll use hostVolume, which is default for community installation.
+# Note: Both PVC name should be same.
+# sink:
+#   pvc:
+#     name: mysharedpersistence
+# storage:
+#   pvc:
+#     name: mysharedpersistence
+
 chalice:
   env:
     jwt_secret: "SetARandomStringHere"
-    # CAPTCHA_SERVER: ''
-    # CAPTCHA_KEY: ''
+    # captcha_server: ''
+    # captcha_key: ''
     # SAML2_MD_URL: ''
     # idp_entityId: ''
     # idp_sso_url: ''
     # idp_x509cert: ''
     # idp_sls_url: ''
     # idp_name: ''
-
+    # idp_tenantKey: ''
 
 # If you want to override something
 # chartname:
 #   filedFrom chart/Values.yaml:
 #     key: value
-
-# For example:
 #
-# alerts:
+# For example (http):
+# http:
 #   resources:
 #     limits:
-#       cpu: 1
+#       cpu: 1024m
+#       memory: 4096Mi
+#     requests:
+#       cpu: 512m
+#       memory: 2056Mi
 
 ##  Changes to nginx
 #
 # nginx-ingress:
+#   # Key and certificate files must be named site.key and site.crt
+#   # and copied to ../openreplay/files/
+#   sslKey: site.key
+#   sslCert: site.crt
+#   # Redirecting http to https
 #   customServerConfigs: |
-#      # Redirecting http to https
 #      return 301 https://$host$request_uri;
-#
-### Change the ssl certificates
-### Public certificate ( content from site.crt, mind the indentation )
-#   ssl_certificate: |-
-#     -----BEGIN CERTIFICATE-----
-#     MIIFITCCAwmgAwIBAgIUQ8hQoDbW3Z4DxRVjIYlIlbEHp/8wDQYJKoZIhvcNAQEL
-#     BQAwIDEeMBwGA1UEAwwVb3BlbnJlcGxheS5sb2NhbC5ob3N0MB4XDTIxMTIyMjA3
-#     NDIxOVoXDTIyMTIyMjA3NDIxOVowIDEeMBwGA1UEAwwVb3BlbnJlcGxheS5sb2Nh
-#     -----END CERTIFICATE-----
-#   
-### Private certificate ( content from site.key, mind the indentation. )
-#   ssl_privatekey: |-
-#     -----BEGIN PRIVATE KEY-----
-#     TbXr+1+HXWQGs4Go63gpvhI/yzOScTTiuI88lbjM9QA/aDlZm2TlXdcB71PDtO5T
-#     e2Zw7SH2h7yLK6uP2FamVgUSe0rWf9zQmKTkFzJcgwelvuk7MHBMw4JSYeoB7dJP
-#     3+FMchvzM1exCC/kNxTqvAyYWzdNPBIPSekHn1I9eEgr14cwZ+1RV9SK16uxsMT9
-#     7qINKoGovqXB1oAdopIl1z64e7MWVE4=
-#     -----END PRIVATE KEY-----

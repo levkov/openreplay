@@ -15,9 +15,10 @@ export default class Mouse {
       zIndex: "999998",
       background: "radial-gradient(red, transparent)",
     });
-    document.body.appendChild(this.mouse);
+  }
 
-
+  mount() {
+    document.body.appendChild(this.mouse)
     window.addEventListener("scroll", this.handleWScroll)
     window.addEventListener("resize", this.resetLastScrEl)
   }
@@ -47,11 +48,12 @@ export default class Mouse {
     }
   }
 
-  private readonly pScrEl = document.scrollingElement || document.documentElement
+  private readonly pScrEl = document.scrollingElement || document.documentElement // Is it always correct
   private lastScrEl: Element | "window" | null = null
   private resetLastScrEl = () => { this.lastScrEl = null }
   private handleWScroll = e => {
-    if (e.target !== this.lastScrEl) {
+    if (e.target !== this.lastScrEl &&
+      this.lastScrEl !== "window") {
       this.resetLastScrEl()
     }
   }

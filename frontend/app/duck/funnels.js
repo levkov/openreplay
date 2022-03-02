@@ -7,6 +7,7 @@ import { createItemInListUpdater, mergeReducers, success, array } from './funcTo
 import { createRequestReducer } from './funcTools/request';
 import { getDateRangeFromValue } from 'App/dateRange';
 import { LAST_7_DAYS } from 'Types/app/period';
+import { filterMap, checkFilterValue, hasFilterApplied } from './search';
 
 const name = 'funnel';
 const idKey = 'funnelId';
@@ -22,6 +23,7 @@ const FETCH_INSIGHTS = fetchType('funnel/FETCH_INSIGHTS');
 const SAVE = saveType('funnel/SAVE');
 const UPDATE = saveType('funnel/UPDATE');
 const EDIT = editType('funnel/EDIT');
+const EDIT_FILTER = `${name}/EDIT_FILTER`;
 const REMOVE = removeType('funnel/REMOVE');
 const INIT = initType('funnel/INIT');
 const SET_NAV_REF = 'funnels/SET_NAV_REF'
@@ -83,6 +85,8 @@ const reducer = (state = initialState, action = {}) => {
       return state.set('blink', action.state);
     case EDIT:
       return state.mergeIn([ 'instance' ], action.instance);
+    case EDIT_FILTER:
+      return state.mergeIn([ 'instance', 'filter' ], action.instance);
     case INIT:
       return state.set('instance', Funnel(action.instance))
 		case FETCH_LIST_SUCCESS:
@@ -117,7 +121,7 @@ const reducer = (state = initialState, action = {}) => {
         .set('issueTypesMap', tmpMap);
     case FETCH_INSIGHTS_SUCCESS:
       let stages = [];
-      if (action.isRefresh) {        
+      if (action.isRefresh) {
         const activeStages = state.get('activeStages');
         const oldInsights = state.get('insights');
         const lastStage = action.data.stages[action.data.stages.length - 1]
@@ -190,19 +194,22 @@ export const fetch = (funnelId, params) => (dispatch, getState) => {
   });
 }
 
-const eventMap = ({value, type, key, operator, source, custom}) => ({value, type, key, operator, source, custom});
-const filterMap = ({value, type, key, operator, source, custom }) => ({value: Array.isArray(value) ? value: [value], custom, type, key, operator, source});
+// const eventMap = ({value, type, key, operator, source, custom}) => ({value, type, key, operator, source, custom});
+// const filterMap = ({value, type, key, operator, source, custom }) => ({value: Array.isArray(value) ? value: [value], custom, type, key, operator, source});
 
 function getParams(params, state) {
-  const appliedFilters = state.getIn([ 'funnelFilters', 'appliedFilter' ]);
-  const filter = appliedFilters
-    .update('events', list => list.map(event => event.set('value', event.value || '*')).map(eventMap))
-    .toJS();
-  
-  filter.filters = state.getIn([ 'funnelFilters', 'appliedFilter', 'filters' ])
-    .map(filterMap).toJS();
+  const filter = state.getIn([ 'funnels', 'instance', 'filter']).toData();
+  filter.filters = filter.filters.map(filterMap);
 
-  return {...filter, ...params };
+  // const appliedFilter = state.getIn([ 'funnels', 'instance', 'filter' ]);
+  // const filter = appliedFilter
+  //   .update('events', list => list.map(event => event.set('value', event.value || '*')).map(eventMap))
+  //   .toJS();
+  
+  // filter.filters = state.getIn([ 'funnelFilters', 'appliedFilter', 'filters' ])
+  //   .map(filterMap).toJS();
+
+  return filter;
 }
 
 export const fetchInsights = (funnelId, params = {}, isRefresh = false) => (dispatch, getState) => {  
@@ -265,15 +272,19 @@ export const fetchIssueTypes = () => {
   }
 }
 
-export const save = (instance) => {
-  const url = instance.exists() 
-    ? `/funnels/${ instance[idKey] }`
-    : `/funnels`;
+export const save = () => (dispatch, getState) => {
+  const instance = getState().getIn([ 'funnels', 'instance'])
+  const filter = instance.get('filter').toData();
+  filter.filters = filter.filters.map(filterMap);
+  const isExist = instance.exists();
 
-  return {
-    types: array(instance.exists() ? SAVE : UPDATE),
-    call: client => client.post(url, instance.toData()),
-  }
+  const _instance = instance instanceof Funnel ? instance : Funnel(instance);
+  const url = isExist ? `/funnels/${ _instance[idKey] }` : `/funnels`;
+
+  return dispatch({
+    types: array(isExist ? SAVE : UPDATE),
+    call: client => client.post(url, { ..._instance.toData(), filter }),
+  });
 }
 
 export const updateFunnelFilters = (funnelId, filter) => {  
@@ -381,7 +392,7 @@ export const blink = (state = true) => {
 }
 
 export const refresh = (funnelId) => (dispatch, getState) => {
-  dispatch(fetch(funnelId))
+  // dispatch(fetch(funnelId))
   dispatch(fetchInsights(funnelId))
   dispatch(fetchIssuesFiltered(funnelId, {}))
   dispatch(fetchSessionsFiltered(funnelId, {}))
@@ -400,3 +411,37 @@ export default mergeReducers(
     fetchSessionsRequest: FETCH_SESSIONS,
   }),	
 )
+
+const reduceThenFetchList = actionCreator => (...args) => (dispatch, getState) => {
+  dispatch(actionCreator(...args));
+  dispatch(refresh(getState().getIn([ 'funnels', 'instance', idKey ])));
+
+  // const filter = getState().getIn([ 'funnels', 'instance', 'filter']).toData();
+  // filter.filters = filter.filters.map(filterMap);
+
+  // return dispatch(fetchSessionList(filter));
+};
+
+
+export const editFilter = reduceThenFetchList((instance) => ({
+  type: EDIT_FILTER,
+  instance,
+}));
+
+export const addFilter = (filter) => (dispatch, getState) => {
+  filter.value = checkFilterValue(filter.value);
+  const instance = getState().getIn([ 'funnels', 'instance', 'filter']);
+
+  if (hasFilterApplied(instance.filters, filter)) {
+    
+  } else {
+    const filters = instance.filters.push(filter);
+    return dispatch(editFilter(instance.set('filters', filters)));
+  }
+}
+
+export const addFilterByKeyAndValue = (key, value) => (dispatch, getState) => {
+  let defaultFilter = filtersMap[key];
+  defaultFilter.value = value;
+  dispatch(addFilter(defaultFilter));
+}
